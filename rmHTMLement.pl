@@ -3,17 +3,17 @@ use strict;
 # HTML regexes
 
 my $HEAD= qr/^<(?>[a-z]\w*+|!DOCTYPE)[^>]*+>/;      my $pstv=qr/[1-9]\d*+/;
-my $A=qr/(?>[^<>]|<(?>meta|link|input|img|hr|base)\b[^>]++>)/;			# Asymetric tag/text content
+my $A=qr/(?>[^<>]|<(?>meta|link|input|img|hr|base)\b[^>]*+>)/;			# Asymetric tag/text content
 # Node that may have the content or head closing
 my $ND= qr{(<([a-z]\w*+)(?>[^/>]*+/>|[^>]*+>(?>$A|(?-2))*+</\g-1>))};
 my $C= qr/(?>$A|$ND)/;			# Content of node
 
-sub getNthEAtt {		# $_[0] searched el  $_[1]=nth/nth backw  $_[2] el under which to search  $_[4] nth bkw
+sub getNthEAtt {		# $_[0] searched el  $_[1]=nth/nth backw  $_[2] el under which to search  $_[5] nth bkw
 	# obtain max nth +1 to solve backward nth
-	if ($_[4]) {
+	if ($_[5]) {
 		my $i=1; $_[2]=~/$HEAD(?:$C*?(?=<$_[0]\b)$ND(?{ ++$i }))+/;
     return 1 if ($_[1]=$i-$_[1]) <1 }
-	return not $_[2]=~ /($HEAD(?:$C*?(?=<$_[0]\b)($ND)){$_[1]})(?{ @{$_[3]}=[substr($1,0,-length($4)), $4] })/
+	return not $_[2]=~ /($HEAD(?:$C*?(?=<$_[0]\b)($ND)){$_[1]})(?{ @{$_[3]}=[$_[4].substr($1,0,-length($4)), $4] })/
 }
 
 sub getAllEAtt {		# $_[1] el under which to search  $_[2] its offset  $_[4]) nth range pos $_[5] attr $_[6] aatt $_[7] all nodes
@@ -43,8 +43,8 @@ sub getAllDepth {		# $_[1] nth/nth bckwrd  $_[2] search space element
 	while (@curNode) {
 		for $onref (@curNode) {
 			if ($_[6]) {
-				my $i=1; $onref->[1]=~ /$HEAD(?:$C*?(?=<$_[0]\b)$ND(?{ ++$i }))+/;
-        $nth=0 if ($nth=$i-$_[1]) <1 }
+				my $i; $onref->[1]=~ /$HEAD(?:$C*?(?=<$_[0]\b)$ND(?{ ++$i }))+/;
+        $nth=0 if ($nth=++$i-$_[1]) <1 }
 			$onref->[1]=~
 			/($HEAD) (?{ $offset=$1 })
       (?(?{$nth})(?:
@@ -57,14 +57,10 @@ sub getAllDepth {		# $_[1] nth/nth bckwrd  $_[2] search space element
 			(?{ push (@nd, [$onref->[0].$offset, $+{nd}]) if $MAX>$min;
 			$off=$offset; $offset.=$+{nd} })
 			){$nth}
-			(?{ push (@$ret, [$onref->[0].$off, $+{nd}]) if $MAX>=$min}) |
-      (?: (?'a'$A*+) (?{$offset.=$+{a} })
-			(?:(?'an'$N) (?{ push (@nd, [$onref->[0].$offset, $+{an}]) if $MAX>$min;
-			$offset.=$+{an}}) )? )*+
-      )
+			(?{ push (@$ret, [$onref->[0].$off, $+{nd}]) if $MAX>=$min}) | )
 			(?: (?'a'$A*+) (?{ $offset.=$+{a} })
 			(?'z'$N) (?{ push (@nd, [$onref->[0].$offset, $+{z}]) if $MAX>$min; $offset.=$+{z} })
-			)*/x
+			)* /x
 		}
 		@curNode=@nd; @nd=();
 	}
@@ -127,25 +123,19 @@ sub getE_Path_Rec {			# path,  offset - node pair
 	$attg=$attg? '\s+'.($attg eq '*'? '\S' : $attg) :'';
 	$aatt=$aatt? '\s+'.($aatt eq '*'? '\S' : $aatt) :'';
   my $depth=split '/', $path=~ s/^\/\h*//r;
+  my @OffNode;
 	for (@{$_[1]}) {
-		my @OffNode;
-		if ($AllDepth) {
-			if ($tag?	$nth?
-					getAllDepth ($tag, $nth, $_->[1], \@OffNode, $_->[0], $depth, $nrev)	# offset-node pair return is in @OffNode..
-					: getAllDepNthRnAtt ($tag, $_->[1], $_->[0], \@OffNode, $depth, $range, $attg)
-				: getAllDepthAatt ($aatt, $_->[1], $_->[0], \@OffNode, $depth) ){
-				next if \$_ != \${$_[1]}[-1];											# no error return yet if there's next iteration
-				return !@res}															# (if current reference not yet equal to the last's) so loop in the next
-		}elsif ($nth) {
-			if (getNthEAtt ($tag, $nth, $_->[1], \@OffNode, $nrev)) {
-				next if \$_ != \${$_[1]}[-1];
-				return !@res}
-			${$OffNode[0]}[0]=$_->[0].${$OffNode[0]}[0];
-		}else {
-			if (getAllEAtt ($tag, $_->[1], $_->[0], \@OffNode, $range, $attg, $aatt, $allnode)) {
-				next if \$_ != \${$_[1]}[-1];
-				return !@res}
-		}
+		if ($AllDepth ?
+			$tag?	$nth?
+        getAllDepth ($tag, $nth, $_->[1], \@OffNode, $_->[0], $depth, $nrev)	# offset-node pair return is in @OffNode..
+        : getAllDepNthRnAtt ($tag, $_->[1], $_->[0], \@OffNode, $depth, $range, $attg)
+      : getAllDepthAatt ($aatt, $_->[1], $_->[0], \@OffNode, $depth)
+		:
+      $nth ?
+        getNthEAtt ($tag, $nth, $_->[1], \@OffNode, $_->[0], $nrev)
+      : getAllEAtt ($tag, $_->[1], $_->[0], \@OffNode, $range, $attg, $aatt, $allnode)){ # if true, means
+				next if \$_ != \${$_[1]}[-1];        # fail to find but if it's not the last in loop, go on iterating
+				return !@res}                        # otherwise return bool 1 if overall fails, 0 if any finding
 		if ($path)	{
 				my $R=getE_Path_Rec ($path, \@OffNode);					# ..to always propagate to the next
 				return $R if \$_ == \${$_[1]}[-1]
